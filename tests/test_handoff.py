@@ -557,9 +557,9 @@ class AdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             cfg = Config(state_dir=Path(td) / "state", socket_path=Path(td) / "state/s.sock")
             adapter = CodexAdapter(cfg)
-            with mock.patch.object(adapter, "session_is_active", return_value=False), mock.patch.object(
-                adapter, "resume_message", return_value=FakeProc(999)
-            ) as resume:
+            with mock.patch.object(
+                adapter, "queue_message", return_value=subprocess_result(1, "", "not running")
+            ), mock.patch.object(adapter, "resume_message", return_value=FakeProc(999)) as resume:
                 route, detail = adapter.route_message(
                     {"id": "H-1", "session_id": "sid", "cwd": td}, "go"
                 )
