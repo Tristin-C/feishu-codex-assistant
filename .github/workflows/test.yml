@@ -1,0 +1,21 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile
+        run: |
+          python -m py_compile handoff_config.py record_store.py feishu_client.py \
+            codex_adapter.py sdk_adapter.py bridge.py handoff windows/setup_gui.py
+      - name: Test
+        run: python -m unittest discover -s tests -v
+

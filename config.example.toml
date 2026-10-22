@@ -1,0 +1,22 @@
+[feishu]
+app_id = "cli_xxxxxxxxxxxxxxxx"
+app_secret = "replace-me"
+chat_id = "oc_xxxxxxxxxxxxxxxx"
+allowed_open_ids = ["ou_xxxxxxxxxxxxxxxx"]
+profile = "feishu-codex-bridge"
+lark_cli = "lark-cli"
+send_enabled = true
+
+[bridge]
+state_dir = "./state"
+socket_path = "./state/bridge.sock"
+ipc_host = "127.0.0.1"
+ipc_port = 47653
+codex_bin = "codex"
+terminal_app = "Terminal"
+default_cwd = "~/Documents"
+full_access = false
+startup_timeout_secs = 30
+poll_secs = 1
+dedupe_window_secs = 600
+

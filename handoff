@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""CLI used by Codex sessions and humans."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+from bridge import Bridge, ipc_request, parse_start_command
+from handoff_config import Config
+
+
+def _cfg() -> Config:
+    return Config.load()
+
+
+def _print_result(result: dict) -> int:
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result.get("ok") or result.get("queued") or result.get("status") == "duplicate" else 1
+
+
+def command_send(args: argparse.Namespace) -> int:
+    text = " ".join(args.text).strip()
+    if not text or text == "-":
+        text = sys.stdin.read().strip()
+    session_id = args.session or os.environ.get("CODEX_THREAD_ID") or os.environ.get("CODEX_SESSION_ID") or ""
+    request = {
+        "action": "send",
+        "session_id": session_id,
+        "cwd": str(Path(args.cwd or os.getcwd()).expanduser().resolve()),
+        "task_id": args.task_id or os.environ.get("HANDOFF_TASK_ID", ""),
+        "task_name": args.task or os.environ.get("HANDOFF_TASK_NAME", ""),
+        "text": text,
+    }
+    return _print_result(ipc_request(_cfg(), request))
+
+
+def command_start(args: argparse.Namespace) -> int:
+    task = " ".join(args.task).strip()
+    if not task:
+        print("任务内容不能为空", file=sys.stderr)
+        return 2
+    if not args.mode:
+        print(
+            "请指定启动方式：\n"
+            "  handoff start terminal \"任务内容\"\n"
+            "  handoff start background \"任务内容\"",
+            file=sys.stderr,
+        )
+        return 2
+    request = {
+        "action": "start",
+        "mode": args.mode,
+        "task": task,
+        "cwd": str(Path(args.cwd or os.getcwd()).expanduser().resolve()),
+    }
+    return _print_result(ipc_request(_cfg(), request, queue_on_failure=False))
+
+
+def command_reply(args: argparse.Namespace) -> int:
+    text = " ".join(args.text).strip()
+    request = {"action": "reply", "task_id": args.task_id, "text": text}
+    return _print_result(ipc_request(_cfg(), request, queue_on_failure=False))
+
+
+def command_list(_: argparse.Namespace) -> int:
+    result = ipc_request(_cfg(), {"action": "list"}, queue_on_failure=False)
+    if not result.get("ok"):
+        return _print_result(result)
+    for record in result.get("records", []):
+        print(
+            f"{record.get('id')}  {record.get('status', ''):12}  "
+            f"{record.get('task_name', '')}  {record.get('session_id', '')[:8]}"
+        )
+    return 0
+
+
+def command_show(args: argparse.Namespace) -> int:
+    return _print_result(
+        ipc_request(_cfg(), {"action": "show", "task_id": args.task_id}, queue_on_failure=False)
+    )
+
+
+def command_serve(args: argparse.Namespace) -> int:
+    cfg = _cfg()
+    bridge = Bridge(cfg, local_only=args.local_only)
+
+    def stop(_signum, _frame):
+        bridge.stop()
+
+    import signal
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    bridge.serve()
+    return 0
+
+
+def command_parse_start(args: argparse.Namespace) -> int:
+    mode, task, error = parse_start_command(args.text)
+    print(json.dumps({"mode": mode, "task": task, "error": error}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Feishu <-> Codex CLI deterministic handoff")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    send = sub.add_parser("send", help="send a Codex result to Feishu")
+    send.add_argument("--task", help="short task name")
+    send.add_argument("--task-id", help="existing H-id")
+    send.add_argument("--session", help="Codex session id")
+    send.add_argument("--cwd", help="session working directory")
+    send.add_argument("text", nargs="*", help="result text; use - to read stdin")
+    send.set_defaults(func=command_send)
+
+    start = sub.add_parser("start", help="start a new Codex CLI task")
+    start.add_argument(
+        "mode",
+        nargs="?",
+        choices=[
+            "terminal",
+            "background",
+            "client",
+            "app",
+            "desktop",
+            "终端",
+            "后台",
+            "客户端",
+        ],
+    )
+    start.add_argument("--cwd", help="working directory")
+    start.add_argument("task", nargs="*", help="task text")
+    start.set_defaults(func=command_start)
+
+    reply = sub.add_parser("reply", help="route a Feishu reply to its Codex session")
+    reply.add_argument("task_id")
+    reply.add_argument("text", nargs="*")
+    reply.set_defaults(func=command_reply)
+
+    list_cmd = sub.add_parser("list", help="list tasks")
+    list_cmd.set_defaults(func=command_list)
+
+    show = sub.add_parser("show", help="show one task")
+    show.add_argument("task_id")
+    show.set_defaults(func=command_show)
+
+    serve = sub.add_parser("serve", help="run the bridge")
+    serve.add_argument("--local-only", action="store_true", help="disable Feishu event/send")
+    serve.set_defaults(func=command_serve)
+
+    parse_start = sub.add_parser("parse-start", help="inspect deterministic start-message parsing")
+    parse_start.add_argument("text")
+    parse_start.set_defaults(func=command_parse_start)
+
+    argv = sys.argv[1:]
+    extracted_cwd = None
+    if argv and argv[0] == "start":
+        # argparse cannot evenly distribute a nargs="*" tail when an option
+        # appears between the mode and task. Accept --cwd anywhere for start.
+        cleaned = []
+        i = 0
+        while i < len(argv):
+            if argv[i] == "--cwd" and i + 1 < len(argv):
+                extracted_cwd = argv[i + 1]
+                i += 2
+                continue
+            if argv[i].startswith("--cwd="):
+                extracted_cwd = argv[i].split("=", 1)[1]
+                i += 1
+                continue
+            cleaned.append(argv[i])
+            i += 1
+        argv = cleaned
+    args = parser.parse_args(argv)
+    if getattr(args, "command", "") == "start" and extracted_cwd:
+        args.cwd = extracted_cwd
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+

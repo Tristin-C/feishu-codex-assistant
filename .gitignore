@@ -1,0 +1,14 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+config.toml
+state/
+dist/
+outputs/
+work/
+windows/app/
+feishu-setup-qr.png
+*.zip
+
