@@ -85,7 +85,6 @@ def build_result_card(title: str, body_lines: List[str], footer: str) -> Dict:
                         "width": "weighted",
                         "weight": 1,
                         "background_style": f"{template}-50",
-                        "corner_radius": "8px",
                         "padding": "12px",
                         "vertical_spacing": "4px",
                         "elements": [
@@ -135,7 +134,6 @@ def build_result_card(title: str, body_lines: List[str], footer: str) -> Dict:
                         "width": "weighted",
                         "weight": 1,
                         "background_style": f"{template}-50",
-                        "corner_radius": "8px",
                         "padding": "12px",
                         "vertical_spacing": "4px",
                         "elements": [
