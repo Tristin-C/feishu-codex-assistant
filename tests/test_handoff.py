@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 from bridge import (
     Bridge,
     ClaimStore,
+    normalize_message_for_dedupe,
     parse_history_command,
     parse_resume_command,
     parse_start_command,
@@ -174,6 +175,14 @@ class ParseHistoryTests(unittest.TestCase):
 
 
 class ClaimTests(unittest.TestCase):
+    def test_markdown_variants_normalize_to_same_dedupe_key(self):
+        formatted = "结果：`run_id` 已合并，**94/94** 通过。\n- item one"
+        plain = "结果：run_id 已合并，94/94 通过。\n• item one"
+        self.assertEqual(
+            normalize_message_for_dedupe(formatted),
+            normalize_message_for_dedupe(plain),
+        )
+
     def test_dedupe_window(self):
         with tempfile.TemporaryDirectory() as td:
             claims = ClaimStore(Path(td), 600)
@@ -371,6 +380,30 @@ class BridgeTests(unittest.TestCase):
             self.assertEqual(call[1], "TITLE")
             self.assertNotIn("TITLE", call[2])
             self.assertIn(record["id"], call[3])
+
+    def test_markdown_only_variants_are_deduped(self):
+        with tempfile.TemporaryDirectory() as td:
+            bridge = make_bridge(Path(td), local_only=False)
+            record = bridge.create_record("sid-1", "/tmp", "attached", "demo")
+            formatted = (
+                "已按“不改 Cairn 前端”的要求完成。\n\n"
+                "- 按逻辑 `run_id` 合并 Trace。\n"
+                "- 验收通过：`94/94` 条查询。"
+            )
+            plain = (
+                "已按“不改 Cairn 前端”的要求完成。\n\n"
+                "• 按逻辑 run_id 合并 Trace。\n"
+                "• 验收通过：94/94 条查询。"
+            )
+            self.assertEqual(
+                bridge._send_record(record, formatted)["status"],
+                "sent",
+            )
+            self.assertEqual(
+                bridge._send_record(record, plain)["status"],
+                "duplicate",
+            )
+            self.assertEqual(len(bridge.feishu.calls), 1)
 
     def test_failed_send_releases_claim(self):
         with tempfile.TemporaryDirectory() as td:

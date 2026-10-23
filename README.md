@@ -128,7 +128,7 @@ python3 -m py_compile handoff_config.py record_store.py feishu_client.py \
 python3 -m unittest discover -s tests -v
 ```
 
-当前共 24 项测试，覆盖消息解析、任务隔离、历史查询、SDK client 模式、
+当前共 26 项测试，覆盖消息解析、任务隔离、历史查询、SDK client 模式、
 去重、消息映射、thread 恢复和 terminal/background 兼容逻辑。
 
 更详细结果见 [VALIDATION.md](VALIDATION.md) 和

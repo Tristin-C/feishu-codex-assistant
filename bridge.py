@@ -19,6 +19,7 @@ import sys
 import threading
 import time
 import traceback
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -57,6 +58,15 @@ CHINESE_START_HINT_RE = re.compile(
 
 def new_task_id() -> str:
     return f"H-{time.strftime('%Y%m%d-%H%M%S')}-{random.randint(0, 9999):04d}"
+
+
+def normalize_message_for_dedupe(text: str) -> str:
+    """Normalize presentation-only Markdown differences between send paths."""
+    text = unicodedata.normalize("NFKC", text).replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"`+", "", text)
+    text = re.sub(r"(\*\*|__|~~|==)", "", text)
+    text = re.sub(r"(?m)^\s*[-*+]\s+", "• ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def normalize_mode(value: str) -> str:
@@ -260,8 +270,14 @@ class Bridge:
         text = text.strip()
         if not text:
             raise ValueError("empty result")
-        claim_key = f"{record['id']}|{text}"
-        if not force and not self.claims.claim(claim_key):
+        dedupe_text = normalize_message_for_dedupe(text)
+        claim_key = f"{record['id']}|{dedupe_text}"
+        previous_text = normalize_message_for_dedupe(str(record.get("last_output") or ""))
+        if not force and (
+            record.get("last_output_dedupe_key") == dedupe_text
+            or (previous_text and previous_text == dedupe_text)
+            or not self.claims.claim(claim_key)
+        ):
             return {"status": "duplicate", "id": record["id"]}
         title = title or sanitize_task_name(text)
         if body_lines is None:
@@ -284,6 +300,7 @@ class Bridge:
         record.update(
             {
                 "last_output": text,
+                "last_output_dedupe_key": dedupe_text,
                 "status": next_status,
                 "feishu_message_id": sent.message_id,
                 "feishu_message_ids": ids[-100:],

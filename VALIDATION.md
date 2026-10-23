@@ -8,7 +8,7 @@ Date: 2026-10-22
 python3 -m unittest discover -s tests -v
 ```
 
-Result: 24 tests passed. Coverage includes:
+Result: 26 tests passed. Coverage includes:
 
 - rich post title/body composition and task/session metadata
 - dedupe and failed-send claim release
@@ -26,6 +26,7 @@ Result: 24 tests passed. Coverage includes:
 - replying directly to a history detail message routes to its original session
 - headless `client` mode using the official Python SDK
 - Codex thread listing and `/resume <thread-id> <task>` routing
+- Markdown-normalized dedupe between manual handoff sends and rollout watchers
 
 ## Codex SDK client-mode test
 

@@ -3,7 +3,7 @@
 ## Verified in the build environment
 
 - Python sources compile under Python 3.9 and Python 3.12.
-- All 24 Bridge tests pass.
+- All 26 Bridge tests pass.
 - The official `openai-codex` 0.163.0 SDK created a Codex thread without a
   terminal UI.
 - The Bridge ran a client-mode turn, resumed the same thread, and listed it in
