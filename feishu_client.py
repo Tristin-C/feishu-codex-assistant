@@ -29,19 +29,66 @@ def _card_text(value: object) -> str:
     return html.escape(str(value or ""), quote=False)
 
 
-def _result_summary(body: str, limit: int = 420) -> str:
+def _result_summary_points(
+    body: str,
+    *,
+    point_limit: int = 90,
+    max_points: int = 4,
+) -> List[str]:
     bullet_lines = [
         match.group(1).strip()
         for match in re.finditer(r"(?m)^\s*[-*+]\s+(.+)$", body)
     ]
     if len(bullet_lines) >= 2:
-        summary = "\n".join(f"- {line}" for line in bullet_lines[:3])
+        candidates = bullet_lines
     else:
         paragraphs = [part.strip() for part in re.split(r"\n\s*\n", body) if part.strip()]
-        summary = paragraphs[0] if paragraphs else body
-    if len(summary) > limit:
-        summary = summary[:limit].rstrip() + "…"
-    return summary
+        candidates = []
+        for paragraph in paragraphs:
+            sentences = [
+                sentence.strip()
+                for sentence in re.split(r"(?<=[。！？!?；;])\s*", paragraph)
+                if sentence.strip()
+            ]
+            merged = ""
+            for sentence in sentences or [paragraph]:
+                candidate = f"{merged}{sentence}".strip()
+                if merged and len(candidate) > point_limit:
+                    candidates.append(merged)
+                    merged = sentence
+                else:
+                    merged = candidate
+            if merged:
+                candidates.append(merged)
+
+    points: List[str] = []
+    for candidate in candidates:
+        shown = re.sub(r"^#{1,6}\s*", "", candidate).strip()
+        if not shown or shown.startswith(("```", "|")):
+            continue
+        if len(shown) > point_limit:
+            shown = shown[:point_limit].rstrip() + "…"
+        if shown not in points:
+            points.append(shown)
+        if len(points) >= max_points:
+            break
+    return points
+
+
+def _body_as_points(body: str) -> str:
+    """Turn plain paragraph blocks into scannable bullets without rewriting structure."""
+    if len(re.findall(r"(?m)^\s*[-*+]\s+", body)) >= 2:
+        return body
+    if any(marker in body for marker in ("```", "\n|", "\n# ")):
+        return body
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", body) if part.strip()]
+    if len(paragraphs) == 1:
+        lines = [line.strip() for line in body.splitlines() if line.strip()]
+        if len(lines) >= 2:
+            paragraphs = lines
+    if len(paragraphs) < 2:
+        return body
+    return "\n\n".join(f"- {paragraph}" for paragraph in paragraphs)
 
 
 def build_result_card(title: str, body_lines: List[str], footer: str) -> Dict:
@@ -51,6 +98,7 @@ def build_result_card(title: str, body_lines: List[str], footer: str) -> Dict:
     body = CITATION_RE.sub(lambda match: f"来源：`{match.group(1)}`", body)
     if len(body) > 7000:
         body = body[:7000].rstrip() + "\n\n…（内容过长，已截断）"
+    display_body = _body_as_points(body)
 
     lowered = title.casefold()
     if any(word in lowered for word in ("失败", "错误", "error", "failed")):
@@ -71,9 +119,15 @@ def build_result_card(title: str, body_lines: List[str], footer: str) -> Dict:
 
     elements: List[Dict] = []
     line_count = len([line for line in body.splitlines() if line.strip()])
-    is_long = len(body) > 420 or line_count > 6
+    paragraph_lengths = [
+        len(part.strip())
+        for part in re.split(r"\n\s*\n", body)
+        if part.strip()
+    ]
+    is_long = len(body) > 260 or line_count > 6 or any(length > 140 for length in paragraph_lengths)
     if body and is_long:
-        summary = _result_summary(body)
+        summary_points = _result_summary_points(body)
+        summary = "\n".join(f"- {point}" for point in summary_points)
         elements.append(
             {
                 "tag": "column_set",
@@ -117,7 +171,7 @@ def build_result_card(title: str, body_lines: List[str], footer: str) -> Dict:
                 "elements": [
                     {
                         "tag": "markdown",
-                        "content": body,
+                        "content": display_body,
                     }
                 ],
             }
@@ -141,7 +195,7 @@ def build_result_card(title: str, body_lines: List[str], footer: str) -> Dict:
                                 "tag": "markdown",
                                 "content": (
                                     f"**<font color='{template}'>核心内容</font>**\n"
-                                    f"{body}"
+                                    f"{display_body}"
                                 ),
                             }
                         ],
@@ -149,46 +203,61 @@ def build_result_card(title: str, body_lines: List[str], footer: str) -> Dict:
                 ],
             }
         )
-    elements.append(
-        {
-            "tag": "div",
-            "element_id": "task_meta",
-            "fields": [
-                {
-                    "is_short": True,
-                    "text": {
-                        "tag": "lark_md",
-                        "content": f"**任务**\n`{_card_text(task_id)}`",
-                        "lines": 1,
+    meta_panel = {
+        "tag": "collapsible_panel",
+        "element_id": "task_info",
+        "expanded": False,
+        "background_color": "grey-50",
+        "border": {"color": "grey-200", "corner_radius": "8px"},
+        "padding": "12px",
+        "header": {
+            "title": {
+                "tag": "plain_text",
+                "content": f"任务信息 · {task_id}",
+            }
+        },
+        "elements": [
+            {
+                "tag": "div",
+                "element_id": "task_meta",
+                "fields": [
+                    {
+                        "is_short": True,
+                        "text": {
+                            "tag": "lark_md",
+                            "content": f"**任务**\n`{_card_text(task_id)}`",
+                            "lines": 1,
+                        },
                     },
-                },
-                {
-                    "is_short": True,
-                    "text": {
-                        "tag": "lark_md",
-                        "content": f"**模式**\n{_card_text(mode)}",
-                        "lines": 1,
+                    {
+                        "is_short": True,
+                        "text": {
+                            "tag": "lark_md",
+                            "content": f"**模式**\n{_card_text(mode)}",
+                            "lines": 1,
+                        },
                     },
-                },
-                {
-                    "is_short": False,
-                    "text": {
-                        "tag": "lark_md",
-                        "content": f"**会话**\n`{_card_text(session)}`",
-                        "lines": 2,
+                    {
+                        "is_short": False,
+                        "text": {
+                            "tag": "lark_md",
+                            "content": f"**会话**\n`{_card_text(session)}`",
+                            "lines": 2,
+                        },
                     },
-                },
-                {
-                    "is_short": False,
-                    "text": {
-                        "tag": "lark_md",
-                        "content": f"**目录**\n`{_card_text(cwd)}`",
-                        "lines": 2,
+                    {
+                        "is_short": False,
+                        "text": {
+                            "tag": "lark_md",
+                            "content": f"**目录**\n`{_card_text(cwd)}`",
+                            "lines": 2,
+                        },
                     },
-                },
-            ],
-        }
-    )
+                ],
+            }
+        ],
+    }
+    elements.append(meta_panel)
     elements.append(
         {
             "tag": "markdown",

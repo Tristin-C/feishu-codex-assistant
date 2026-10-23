@@ -216,7 +216,10 @@ class FeishuCardTests(unittest.TestCase):
             "来源：`/tmp/report.json`",
             json.dumps(card, ensure_ascii=False),
         )
-        meta = card["body"]["elements"][1]
+        meta_panel = card["body"]["elements"][1]
+        self.assertEqual(meta_panel["tag"], "collapsible_panel")
+        self.assertIn("任务信息", meta_panel["header"]["title"]["content"])
+        meta = meta_panel["elements"][0]
         self.assertEqual(meta["tag"], "div")
         rendered = json.dumps(card, ensure_ascii=False)
         self.assertIn("01a1531c-ad54-7091-82ba-8b892129101d", rendered)
@@ -234,13 +237,29 @@ class FeishuCardTests(unittest.TestCase):
         self.assertEqual(elements[0]["tag"], "column_set")
         summary = elements[0]["columns"][0]["elements"][0]["content"]
         self.assertIn("重点 1", summary)
-        self.assertIn("重点 3", summary)
-        self.assertNotIn("重点 4", summary)
+        self.assertIn("重点 4", summary)
+        self.assertNotIn("重点 5", summary)
         panel = elements[1]
         self.assertEqual(panel["tag"], "collapsible_panel")
         self.assertFalse(panel["expanded"])
         self.assertIn("查看完整结果", panel["header"]["title"]["content"])
         self.assertIn("重点 9", panel["elements"][0]["content"])
+
+    def test_plain_paragraphs_render_as_bullet_points(self):
+        body = [
+            "第一段说明整体结论和方案定位。",
+            "第二段说明关键实现和调用顺序。",
+            "第三段说明验收结果和后续行动。",
+        ]
+        card = build_result_card(
+            "分段结果",
+            body,
+            "H-1 · 模式 客户端 · 会话 sid · /tmp/project",
+        )
+        content = card["body"]["elements"][0]["columns"][0]["elements"][0]["content"]
+        self.assertIn("- 第一段说明", content)
+        self.assertIn("- 第二段说明", content)
+        self.assertIn("- 第三段说明", content)
 
     def test_sender_uses_interactive_card_message(self):
         cfg = Config(chat_id="oc_test", send_enabled=True)
