@@ -209,11 +209,12 @@ class FeishuCardTests(unittest.TestCase):
         self.assertEqual(card["schema"], "2.0")
         self.assertEqual(card["header"]["template"], "green")
         self.assertEqual(card["header"]["icon"]["token"], "ai-common_colorful")
-        self.assertEqual(card["body"]["elements"][0]["tag"], "markdown")
-        self.assertIn("新增 Run 汇总", card["body"]["elements"][0]["content"])
+        self.assertEqual(card["body"]["elements"][0]["tag"], "column_set")
+        summary = card["body"]["elements"][0]["columns"][0]["elements"][0]["content"]
+        self.assertIn("新增 Run 汇总", summary)
         self.assertIn(
             "来源：`/tmp/report.json`",
-            card["body"]["elements"][0]["content"],
+            json.dumps(card, ensure_ascii=False),
         )
         meta = card["body"]["elements"][1]
         self.assertEqual(meta["tag"], "div")
@@ -221,6 +222,25 @@ class FeishuCardTests(unittest.TestCase):
         self.assertIn("01a1531c-ad54-7091-82ba-8b892129101d", rendered)
         self.assertIn("/Users/paige/cairn/cairn-platform", rendered)
         self.assertNotIn("────────", rendered)
+
+    def test_long_result_is_summarized_and_collapsed(self):
+        body = [f"- 重点 {index}：" + ("详细说明 " * 20) for index in range(1, 10)]
+        card = build_result_card(
+            "长任务完成",
+            body,
+            "H-1 · 模式 客户端 · 会话 sid · /tmp/project",
+        )
+        elements = card["body"]["elements"]
+        self.assertEqual(elements[0]["tag"], "column_set")
+        summary = elements[0]["columns"][0]["elements"][0]["content"]
+        self.assertIn("重点 1", summary)
+        self.assertIn("重点 3", summary)
+        self.assertNotIn("重点 4", summary)
+        panel = elements[1]
+        self.assertEqual(panel["tag"], "collapsible_panel")
+        self.assertFalse(panel["expanded"])
+        self.assertIn("查看完整结果", panel["header"]["title"]["content"])
+        self.assertIn("重点 9", panel["elements"][0]["content"])
 
     def test_sender_uses_interactive_card_message(self):
         cfg = Config(chat_id="oc_test", send_enabled=True)

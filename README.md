@@ -18,6 +18,7 @@
 - 回复任务卡片或历史详情卡片：继续对应 thread。
 - 任务最终答复自动回传飞书。
 - 确定性 H-id 路由，不按“最近任务”猜测目标。
+- 长结果自动提取核心内容，并把完整正文收进折叠面板。
 
 ## Windows 一键安装
 
@@ -128,7 +129,7 @@ python3 -m py_compile handoff_config.py record_store.py feishu_client.py \
 python3 -m unittest discover -s tests -v
 ```
 
-当前共 28 项测试，覆盖消息解析、任务隔离、历史查询、SDK client 模式、
+当前共 29 项测试，覆盖消息解析、任务隔离、历史查询、SDK client 模式、
 去重、消息映射、thread 恢复和 terminal/background 兼容逻辑。
 
 更详细结果见 [VALIDATION.md](VALIDATION.md) 和

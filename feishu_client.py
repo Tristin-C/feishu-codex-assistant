@@ -29,6 +29,21 @@ def _card_text(value: object) -> str:
     return html.escape(str(value or ""), quote=False)
 
 
+def _result_summary(body: str, limit: int = 420) -> str:
+    bullet_lines = [
+        match.group(1).strip()
+        for match in re.finditer(r"(?m)^\s*[-*+]\s+(.+)$", body)
+    ]
+    if len(bullet_lines) >= 2:
+        summary = "\n".join(f"- {line}" for line in bullet_lines[:3])
+    else:
+        paragraphs = [part.strip() for part in re.split(r"\n\s*\n", body) if part.strip()]
+        summary = paragraphs[0] if paragraphs else body
+    if len(summary) > limit:
+        summary = summary[:limit].rstrip() + "…"
+    return summary
+
+
 def build_result_card(title: str, body_lines: List[str], footer: str) -> Dict:
     """Build a compact Card 2.0 result while preserving reply routing."""
     title = str(title or "Codex 结果").strip()[:100]
@@ -55,12 +70,85 @@ def build_result_card(title: str, body_lines: List[str], footer: str) -> Dict:
     cwd = parts[-1] if parts else ""
 
     elements: List[Dict] = []
-    if body:
+    line_count = len([line for line in body.splitlines() if line.strip()])
+    is_long = len(body) > 420 or line_count > 6
+    if body and is_long:
+        summary = _result_summary(body)
         elements.append(
             {
-                "tag": "markdown",
-                "content": body,
-                "element_id": "result_body",
+                "tag": "column_set",
+                "element_id": "result_summary",
+                "flex_mode": "none",
+                "columns": [
+                    {
+                        "tag": "column",
+                        "width": "weighted",
+                        "weight": 1,
+                        "background_style": f"{template}-50",
+                        "corner_radius": "8px",
+                        "padding": "12px",
+                        "vertical_spacing": "4px",
+                        "elements": [
+                            {
+                                "tag": "markdown",
+                                "content": (
+                                    f"**<font color='{template}'>核心内容</font>**\n"
+                                    f"{summary}"
+                                ),
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        elements.append(
+            {
+                "tag": "collapsible_panel",
+                "element_id": "full_result",
+                "expanded": False,
+                "background_color": "grey-50",
+                "border": {"color": "grey-200", "corner_radius": "8px"},
+                "padding": "12px",
+                "header": {
+                    "title": {
+                        "tag": "plain_text",
+                        "content": f"查看完整结果 · {line_count} 行",
+                    }
+                },
+                "elements": [
+                    {
+                        "tag": "markdown",
+                        "content": body,
+                    }
+                ],
+            }
+        )
+    elif body:
+        elements.append(
+            {
+                "tag": "column_set",
+                "element_id": "result_summary",
+                "flex_mode": "none",
+                "columns": [
+                    {
+                        "tag": "column",
+                        "width": "weighted",
+                        "weight": 1,
+                        "background_style": f"{template}-50",
+                        "corner_radius": "8px",
+                        "padding": "12px",
+                        "vertical_spacing": "4px",
+                        "elements": [
+                            {
+                                "tag": "markdown",
+                                "content": (
+                                    f"**<font color='{template}'>核心内容</font>**\n"
+                                    f"{body}"
+                                ),
+                            }
+                        ],
+                    }
+                ],
             }
         )
     elements.append(
