@@ -22,7 +22,7 @@ from bridge import (
     parse_threads_command,
 )
 from codex_adapter import CodexAdapter, DiscoveryResult
-from feishu_client import FeishuResult
+from feishu_client import FeishuClient, FeishuResult, build_result_card
 from handoff_config import Config
 from record_store import RecordStore
 
@@ -189,6 +189,57 @@ class ClaimTests(unittest.TestCase):
             self.assertTrue(claims.claim("a|b"))
             self.assertFalse(claims.claim("a|b"))
             self.assertTrue(claims.claim("a|c"))
+
+
+class FeishuCardTests(unittest.TestCase):
+    def test_result_card_2_payload(self):
+        footer = (
+            "H-20261023-111950-5057 · 模式 客户端 · "
+            "会话 01a1531c-ad54-7091-82ba-8b892129101d · /Users/paige/cairn/cairn-platform"
+        )
+        card = build_result_card(
+            "SigNoz 面板优化完成",
+            [
+                "已完成面板优化。",
+                "- 新增 Run 汇总。",
+                ':codex-file-citation{path="/tmp/report.json" purpose="source"}',
+            ],
+            footer,
+        )
+        self.assertEqual(card["schema"], "2.0")
+        self.assertEqual(card["header"]["template"], "green")
+        self.assertEqual(card["header"]["icon"]["token"], "ai-common_colorful")
+        self.assertEqual(card["body"]["elements"][0]["tag"], "markdown")
+        self.assertIn("新增 Run 汇总", card["body"]["elements"][0]["content"])
+        self.assertIn(
+            "来源：`/tmp/report.json`",
+            card["body"]["elements"][0]["content"],
+        )
+        meta = card["body"]["elements"][1]
+        self.assertEqual(meta["tag"], "div")
+        rendered = json.dumps(card, ensure_ascii=False)
+        self.assertIn("01a1531c-ad54-7091-82ba-8b892129101d", rendered)
+        self.assertIn("/Users/paige/cairn/cairn-platform", rendered)
+        self.assertNotIn("────────", rendered)
+
+    def test_sender_uses_interactive_card_message(self):
+        cfg = Config(chat_id="oc_test", send_enabled=True)
+        client = FeishuClient(cfg)
+        response = {"code": 0, "data": {"message_id": "om_card"}}
+        with mock.patch.object(client, "tenant_token", return_value="token"), mock.patch.object(
+            client, "_call", return_value=response
+        ) as call:
+            result = client.send_post(
+                "任务完成",
+                ["结果正文"],
+                "H-1 · 模式 客户端 · 会话 sid-full · /tmp",
+            )
+        self.assertEqual(result.message_id, "om_card")
+        payload = call.call_args.args[1]
+        self.assertEqual(payload["msg_type"], "interactive")
+        card = json.loads(payload["content"])
+        self.assertEqual(card["schema"], "2.0")
+        self.assertEqual(card["header"]["template"], "green")
 
 
 class RecordTests(unittest.TestCase):

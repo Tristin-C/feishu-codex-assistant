@@ -2,7 +2,9 @@
 """Minimal Feishu OpenAPI client for rich-post messages and task replies."""
 from __future__ import annotations
 
+import html
 import json
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -15,6 +17,128 @@ from handoff_config import Config
 class FeishuResult:
     message_id: str
     raw: Dict
+
+
+CITATION_RE = re.compile(
+    r':codex-file-citation\{path="([^"]+)"[^}]*\}',
+    re.IGNORECASE,
+)
+
+
+def _card_text(value: object) -> str:
+    return html.escape(str(value or ""), quote=False)
+
+
+def build_result_card(title: str, body_lines: List[str], footer: str) -> Dict:
+    """Build a compact Card 2.0 result while preserving reply routing."""
+    title = str(title or "Codex 结果").strip()[:100]
+    body = "\n".join(line for line in body_lines if line.strip())
+    body = CITATION_RE.sub(lambda match: f"来源：`{match.group(1)}`", body)
+    if len(body) > 7000:
+        body = body[:7000].rstrip() + "\n\n…（内容过长，已截断）"
+
+    lowered = title.casefold()
+    if any(word in lowered for word in ("失败", "错误", "error", "failed")):
+        template = "red"
+        subtitle = "Codex · 执行失败"
+    elif "已启动" in title:
+        template = "blue"
+        subtitle = "Codex · 任务已启动"
+    else:
+        template = "green"
+        subtitle = "Codex · 结果回传"
+
+    parts = [part.strip() for part in str(footer or "").split(" · ") if part.strip()]
+    task_id = parts[0] if parts else ""
+    mode = next((part.removeprefix("模式 ") for part in parts if part.startswith("模式 ")), "unknown")
+    session = next((part.removeprefix("会话 ") for part in parts if part.startswith("会话 ")), "pending")
+    cwd = parts[-1] if parts else ""
+
+    elements: List[Dict] = []
+    if body:
+        elements.append(
+            {
+                "tag": "markdown",
+                "content": body,
+                "element_id": "result_body",
+            }
+        )
+    elements.append(
+        {
+            "tag": "div",
+            "element_id": "task_meta",
+            "fields": [
+                {
+                    "is_short": True,
+                    "text": {
+                        "tag": "lark_md",
+                        "content": f"**任务**\n`{_card_text(task_id)}`",
+                        "lines": 1,
+                    },
+                },
+                {
+                    "is_short": True,
+                    "text": {
+                        "tag": "lark_md",
+                        "content": f"**模式**\n{_card_text(mode)}",
+                        "lines": 1,
+                    },
+                },
+                {
+                    "is_short": False,
+                    "text": {
+                        "tag": "lark_md",
+                        "content": f"**会话**\n`{_card_text(session)}`",
+                        "lines": 2,
+                    },
+                },
+                {
+                    "is_short": False,
+                    "text": {
+                        "tag": "lark_md",
+                        "content": f"**目录**\n`{_card_text(cwd)}`",
+                        "lines": 2,
+                    },
+                },
+            ],
+        }
+    )
+    elements.append(
+        {
+            "tag": "markdown",
+            "element_id": "reply_hint",
+            "content": "<font color='grey'>回复本卡继续此线程</font>",
+            "text_size": "notation",
+        }
+    )
+
+    return {
+        "schema": "2.0",
+        "config": {
+            "update_multi": True,
+            "width_mode": "default",
+            "summary": {"content": title},
+        },
+        "header": {
+            "title": {"tag": "plain_text", "content": title},
+            "subtitle": {"tag": "plain_text", "content": subtitle},
+            "template": template,
+            "icon": {"tag": "standard_icon", "token": "ai-common_colorful"},
+            "text_tag_list": [
+                {
+                    "tag": "text_tag",
+                    "text": {"tag": "plain_text", "content": "Codex"},
+                    "color": template,
+                }
+            ],
+        },
+        "body": {
+            "direction": "vertical",
+            "padding": "12px 12px 20px 12px",
+            "vertical_spacing": "8px",
+            "elements": elements,
+        },
+    }
 
 
 class FeishuClient:
@@ -55,28 +179,13 @@ class FeishuClient:
     def send_post(self, title: str, body_lines: List[str], footer: str) -> FeishuResult:
         if not self.cfg.send_enabled:
             raise RuntimeError("Feishu sending is disabled")
-        content_rows = []
-        for line in body_lines:
-            if line.strip():
-                shown = line
-                if line.lstrip().startswith(("- ", "* ")):
-                    shown = "• " + line.lstrip()[2:]
-                content_rows.append([{"tag": "text", "text": shown}])
-        content_rows.append([{"tag": "text", "text": "────────"}])
-        content_rows.append([{"tag": "text", "text": footer}])
-        content_rows.append([{"tag": "text", "text": "回复本条消息继续"}])
-        post = {
-            "zh_cn": {
-                "title": title[:100],
-                "content": content_rows,
-            }
-        }
+        card = build_result_card(title, body_lines, footer)
         response = self._call(
             "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
             {
                 "receive_id": self.cfg.chat_id,
-                "msg_type": "post",
-                "content": json.dumps(post, ensure_ascii=False),
+                "msg_type": "interactive",
+                "content": json.dumps(card, ensure_ascii=False),
             },
             token=self.tenant_token(),
         )

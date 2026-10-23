@@ -254,7 +254,13 @@ class Bridge:
     def _record_footer(self, record: Dict) -> str:
         sid = str(record.get("session_id", ""))
         cwd = str(record.get("cwd", ""))
-        return f"{record['id']} · {record.get('task_name', '')} · 会话 {sid[:8] or 'pending'} · {cwd}"
+        mode = {
+            "terminal": "终端",
+            "background": "后台",
+            "client": "客户端",
+            "attached": "已关联",
+        }.get(str(record.get("mode", "")), str(record.get("mode") or "unknown"))
+        return f"{record['id']} · 模式 {mode} · 会话 {sid or 'pending'} · {cwd}"
 
     def _send_record(
         self,
@@ -466,9 +472,7 @@ class Bridge:
                 title="Codex 客户端任务已启动",
                 body_lines=[
                     f"任务：{task_name}",
-                    "模式：Codex 客户端线程",
-                    f"线程：{record['session_id']}",
-                    f"目录：{cwd}",
+                    "任务已开始执行，完成后会自动回传结果。",
                 ],
                 force=True,
                 next_status="running",
@@ -545,9 +549,7 @@ class Bridge:
             title="Codex 任务已启动",
             body_lines=[
                 f"任务：{task_name}",
-                f"模式：{'终端窗口' if mode == 'terminal' else '后台会话'}",
-                f"会话：{record['session_id']}",
-                f"目录：{cwd}",
+                "任务已开始执行，完成后会自动回传结果。",
             ],
             force=True,
             watch_from_start=True,
