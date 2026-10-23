@@ -8,7 +8,7 @@ Date: 2026-10-22
 python3 -m unittest discover -s tests -v
 ```
 
-Result: 30 tests passed. Coverage includes:
+Result: 32 tests passed. Coverage includes:
 
 - rich post title/body composition and task/session metadata
 - dedupe and failed-send claim release
@@ -30,6 +30,8 @@ Result: 30 tests passed. Coverage includes:
 - Feishu Card 2.0 payload generation and interactive message dispatch
 - long-result summary extraction and collapsed full-detail panel
 - paragraph-to-bullet rendering and collapsed task metadata
+- active app-server turn steering via `turn/steer`
+- pending queue detection with automatic resume fallback
 
 ## Codex SDK client-mode test
 

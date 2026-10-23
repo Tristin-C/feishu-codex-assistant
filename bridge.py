@@ -576,11 +576,16 @@ class Bridge:
             route, detail = self.adapter.route_message(record, text.strip())
         self.store.update(
             task_id,
-            status="running" if route == "queue" else "resuming",
+            status="running" if route in {"queue", "steer"} else "resuming",
             last_route=route,
             last_route_at=time.time(),
         )
-        send_direct_text = f"已转达 {task_id} · {'运行中会话' if route == 'queue' else '已续接会话'}"
+        route_label = {
+            "queue": "运行中会话",
+            "steer": "已注入运行中会话",
+            "resume": "已续接会话",
+        }.get(route, "已转达")
+        send_direct_text = f"已转达 {task_id} · {route_label}"
         try:
             self.send_direct_text(send_direct_text)
         except Exception as exc:

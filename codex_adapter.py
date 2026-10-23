@@ -14,6 +14,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from app_server_steer import (
+    queued_item_ids,
+    remove_queued_items,
+    steer_active_turn,
+    wait_for_queue_consumption,
+)
 from handoff_config import Config, sanitize_task_name
 
 
@@ -303,9 +309,19 @@ class CodexAdapter:
         cwd = str(record.get("cwd") or Path.home())
         if not session_id:
             raise RuntimeError("record has no session_id")
+        steered = steer_active_turn(self._codex(), session_id, text)
+        if steered:
+            return "steer", f"steered turn={steered['turn_id']}"
+
+        codex_home = Path(str(record.get("codex_home") or self.session_home())).expanduser()
+        pending_before = queued_item_ids(codex_home, session_id, text)
         queued = self.queue_message(session_id, cwd, text)
         if queued.returncode == 0:
-            return "queue", queued.stdout.strip() or "queued"
+            pending_after = queued_item_ids(codex_home, session_id, text)
+            new_ids = pending_after - pending_before
+            if new_ids and wait_for_queue_consumption(codex_home, session_id, new_ids):
+                return "queue", queued.stdout.strip() or "queued"
+            remove_queued_items(codex_home, pending_after)
         resumed = self.resume_message(session_id, cwd, text, str(record["id"]))
         return "resume", f"started pid={resumed.pid}"
 

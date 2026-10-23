@@ -680,7 +680,7 @@ class AdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             cfg = Config(state_dir=Path(td) / "state", socket_path=Path(td) / "state/s.sock")
             adapter = CodexAdapter(cfg)
-            with mock.patch.object(
+            with mock.patch("codex_adapter.steer_active_turn", return_value=None), mock.patch.object(
                 adapter, "queue_message", return_value=subprocess_result(1, "", "not running")
             ), mock.patch.object(adapter, "resume_message", return_value=FakeProc(999)) as resume:
                 route, detail = adapter.route_message(
@@ -694,7 +694,11 @@ class AdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             cfg = Config(state_dir=Path(td) / "state", socket_path=Path(td) / "state/s.sock")
             adapter = CodexAdapter(cfg)
-            with mock.patch.object(adapter, "session_is_active", return_value=True), mock.patch.object(
+            with mock.patch("codex_adapter.steer_active_turn", return_value=None), mock.patch(
+                "codex_adapter.queued_item_ids", side_effect=[set(), {"queued-1"}]
+            ), mock.patch(
+                "codex_adapter.wait_for_queue_consumption", return_value=True
+            ), mock.patch.object(
                 adapter, "queue_message", return_value=subprocess_result(0, "queued", "")
             ), mock.patch.object(adapter, "resume_message") as resume:
                 route, detail = adapter.route_message(
@@ -702,6 +706,38 @@ class AdapterTests(unittest.TestCase):
                 )
             self.assertEqual(route, "queue")
             resume.assert_not_called()
+
+    def test_active_turn_uses_steer(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Config(state_dir=Path(td) / "state", socket_path=Path(td) / "state/s.sock")
+            adapter = CodexAdapter(cfg)
+            with mock.patch(
+                "codex_adapter.steer_active_turn",
+                return_value={"turn_id": "turn-active", "status": "active"},
+            ), mock.patch.object(adapter, "queue_message") as queue:
+                route, detail = adapter.route_message(
+                    {"id": "H-1", "session_id": "sid", "cwd": td}, "steer me"
+                )
+            self.assertEqual(route, "steer")
+            self.assertIn("turn-active", detail)
+            queue.assert_not_called()
+
+    def test_pending_queue_falls_back_to_resume(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Config(state_dir=Path(td) / "state", socket_path=Path(td) / "state/s.sock")
+            adapter = CodexAdapter(cfg)
+            with mock.patch("codex_adapter.steer_active_turn", return_value=None), mock.patch(
+                "codex_adapter.queued_item_ids", side_effect=[set(), {"queued-1"}]
+            ), mock.patch(
+                "codex_adapter.wait_for_queue_consumption", return_value=False
+            ), mock.patch("codex_adapter.remove_queued_items") as remove, mock.patch.object(
+                adapter, "queue_message", return_value=subprocess_result(0, "queued", "")
+            ), mock.patch.object(adapter, "resume_message", return_value=FakeProc(777)):
+                route, _ = adapter.route_message(
+                    {"id": "H-1", "session_id": "sid", "cwd": td}, "run now"
+                )
+            self.assertEqual(route, "resume")
+            remove.assert_called_once()
 
 
 def subprocess_result(rc, out, err):
